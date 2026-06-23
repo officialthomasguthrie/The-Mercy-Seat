@@ -1,0 +1,3 @@
+# Substrate only. The essence (model, tokenizer, training, sampler) is written by hand.
+mlx>=0.31.2
+numpy>=2.0

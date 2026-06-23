@@ -1,0 +1,27 @@
+# Generated artifacts (large, regenerable)
+*.bin
+*.ember
+*.safetensors
+*.pt
+*.npy
+*.npz
+checkpoints/
+samples/
+
+# Corpus: downloaded and cleaned texts are rebuilt from the manifest
+witness/sources/raw/
+witness/sources/clean/
+
+# Journal: personal communion records stay local
+mercy_seat/journal/*.jsonl
+mercy_seat/journal/*.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
