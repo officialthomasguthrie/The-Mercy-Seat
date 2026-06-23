@@ -31,6 +31,9 @@ def _tokenizer_from_blob(blob):
     if kind == "char":
         from alphabet.char import CharTokenizer
         return CharTokenizer.from_blob(blob)
+    if kind == "bpe":
+        from alphabet.bpe import BPETokenizer
+        return BPETokenizer.from_blob(blob)
     raise ValueError("unknown tokenizer kind: %s" % kind)
 
 
