@@ -43,8 +43,8 @@ SCALES = {
     "acolyte": dict(
         kind="bpe", vocab="bpe_vocab.json",
         train_bin="witness_train_bpe.bin", val_bin="witness_val_bpe.bin",
-        make=cfgs.acolyte, B=12, T=512, lr_max=3e-4, lr_min=3e-5, warmup=300,
-        default_steps=60000, ember="logos_acolyte.ember", prompt="In the beginning",
+        make=cfgs.acolyte, B=8, T=256, lr_max=3e-4, lr_min=3e-5, warmup=300,
+        default_steps=30000, ember="logos_acolyte.ember", prompt="In the beginning",
     ),
 }
 
@@ -152,6 +152,7 @@ def main():
     sc = SCALES[scale]
     max_steps = steps or sc["default_steps"]
     os.makedirs(SAMPLES, exist_ok=True)
+    mx.set_cache_limit(256 * 1024 * 1024)       # bound memory so a 16 GB Mac does not swap
 
     tok = load_tokenizer(sc)
     cfg = sc["make"](tok.vocab_size)
@@ -169,6 +170,8 @@ def main():
     loss_and_grad = nn.value_and_grad(model, lambda m, x, y: cross_entropy(m(x), y))
     lr_at = make_lr(sc, max_steps)
     ember_out = os.path.join(ROOT, "ember", sc["ember"])
+    ember_best = ember_out.replace(".ember", "_best.ember")
+    best_val = float("inf")
 
     log = open(os.path.join(SAMPLES, "kindling_%s.txt" % scale), "a", encoding="utf-8")
     t0 = time.time()
@@ -179,6 +182,7 @@ def main():
         grads, gnorm = clip_grads(grads, GRAD_CLIP)
         opt.step(model, grads, lr)
         mx.eval(model.parameters(), loss)
+        mx.clear_cache()
 
         if step % EVAL_EVERY == 0 or step == max_steps - 1:
             vx, vy = get_batch(val_data, sc["B"], sc["T"])
@@ -188,6 +192,9 @@ def main():
                 step, loss.item(), vl.item(), lr, gnorm, time.time() - t0)
             print(line)
             log.write(line + "\n"); log.flush()
+            if vl.item() < best_val:          # keep the val-minimum, not just the last step
+                best_val = vl.item()
+                save_ember(model, cfg, tok, ember_best)
 
         if step % SAMPLE_EVERY == 0 or step == max_steps - 1:
             block = "\n----- step %d sample -----\n%s\n" % (step, sample(model, tok, cfg, sc["prompt"]))
