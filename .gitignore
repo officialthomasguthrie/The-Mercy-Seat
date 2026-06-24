@@ -7,6 +7,11 @@
 *.npz
 checkpoints/
 samples/
+witness/bpe_vocab.json
+
+# Compiled binaries, built from source by the reader
+mercy_seat/altar_engine
+*.o
 
 # Corpus: downloaded and cleaned texts are rebuilt from the manifest
 witness/sources/raw/
