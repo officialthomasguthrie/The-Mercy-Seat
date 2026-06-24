@@ -14,7 +14,7 @@ Source types:
 # scripture is set heaviest so the Bible burns brightest by mass, not just by intent.
 # philosophy gets weight 1 because the Summa alone is huge and would otherwise swamp the
 # corpus; the poets get a lift because they are tiny in raw size but meant to shine.
-TIER_WEIGHT = {1: 5, 2: 3, 3: 1, 4: 3}
+TIER_WEIGHT = {1: 5, 2: 3, 3: 1, 4: 3, 5: 1}
 
 
 def _src(key, tier, title, author, url, kind="gutenberg", weight=None):
@@ -90,6 +90,31 @@ SOURCES = [
     _src("blake_songs", 4, "Songs of Innocence and of Experience", "William Blake", _gb(1934)),
     _src("blake_marriage", 4, "The Marriage of Heaven and Hell", "William Blake", _gbfiles(45315)),
     _src("hopkins", 4, "Poems of Gerard Manley Hopkins", "G. M. Hopkins, 1918 ed.", _gb(22403)),
+
+    # Tier 5. The wider pre-modern witness. Used at the Acolyte scale to teach fluent old
+    # English without teaching the modern world. Light per source, large in total.
+    _src("shakespeare", 5, "The Complete Works of Shakespeare", "William Shakespeare", _gb(100)),
+    _src("pilgrims_progress", 5, "The Pilgrim's Progress", "John Bunyan", _gb(131)),
+    _src("bcp", 5, "The Book of Common Prayer", "1929 Scottish", _gb(29622)),
+    _src("faerie_queene1", 5, "The Faerie Queene, Vol. 1", "Edmund Spenser", _gb(70717)),
+    _src("faerie_queene2", 5, "The Faerie Queene, Vol. 2", "Edmund Spenser", _gb(72698)),
+    _src("donne", 5, "The Poems of John Donne, Vol. 1", "John Donne, ed. Grierson", _gb(48688)),
+    _src("religio_medici", 5, "Religio Medici", "Sir Thomas Browne", _gb(586)),
+    _src("bacon_essays", 5, "Essays", "Francis Bacon", _gb(575)),
+    _src("plato_republic", 5, "The Republic", "Plato, tr. Jowett", _gb(1497)),
+    _src("plutarch", 5, "Plutarch's Lives", "tr. Dryden and Clough", _gb(674)),
+    _src("iliad", 5, "The Iliad", "Homer, tr. Pope", _gb(6130)),
+    _src("odyssey", 5, "The Odyssey", "Homer, tr. Pope", _gb(3160)),
+    _src("marcus_aurelius", 5, "Meditations", "Marcus Aurelius, tr. Long", _gb(15877)),
+    _src("boethius", 5, "The Consolation of Philosophy", "Boethius, tr. James", _gb(14328)),
+    _src("josephus", 5, "Antiquities of the Jews", "Josephus, tr. Whiston", _gb(2848)),
+    _src("city_of_god1", 5, "The City of God, Vol. I", "Augustine, tr. Dods", _gb(45304)),
+    _src("city_of_god2", 5, "The City of God, Vol. II", "Augustine, tr. Dods", _gb(45305)),
+    _src("edwards", 5, "Selected Sermons", "Jonathan Edwards", _gb(34632)),
+    _src("areopagitica", 5, "Areopagitica", "John Milton", _gb(608)),
+    _src("utopia", 5, "Utopia", "Thomas More, tr. Robinson", _gb(2130)),
+    _src("koran", 5, "The Koran", "tr. J. M. Rodwell", _gb(3434)),
+    _src("epictetus", 5, "Discourses and Enchiridion", "Epictetus, tr. Long", _gb(10661)),
 ]
 
 

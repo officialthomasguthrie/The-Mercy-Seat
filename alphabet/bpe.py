@@ -11,6 +11,7 @@ makes training fast enough to run in plain Python.
 
 import json
 import re
+import time
 from collections import Counter
 
 SPLIT = re.compile(r" ?\w+| ?[^\w\s]+|\s+", re.UNICODE)
@@ -38,14 +39,17 @@ def _merge(word, pair, idx):
     return tuple(out)
 
 
-def train_bpe(text, vocab_size):
+def train_bpe(text, vocab_size, verbose=False):
     chunks = SPLIT.findall(text)
     freq = Counter(chunks)
     words = {}
     for ch, c in freq.items():
         words[tuple(ch.encode("utf-8"))] = c
+    if verbose:
+        print("bpe: %d unique words, training to vocab %d" % (len(words), vocab_size), flush=True)
     merges = []
     nxt = 256
+    t0 = time.time()
     while nxt < vocab_size:
         stats = _pairs(words)
         if not stats:
@@ -60,6 +64,8 @@ def train_bpe(text, vocab_size):
         words = new
         merges.append(pair)
         nxt += 1
+        if verbose and nxt % 1000 == 0:
+            print("  %d/%d merges  (%.0fs)" % (nxt, vocab_size, time.time() - t0), flush=True)
     return merges
 
 
@@ -68,6 +74,7 @@ class BPETokenizer:
         self.merge_list = [tuple(p) for p in merges]
         self.merges = {p: 256 + i for i, p in enumerate(self.merge_list)}
         self.vocab = self._build_vocab()
+        self._cache = {}        # words repeat heavily, so encode each one once
 
     def _build_vocab(self):
         v = {i: bytes([i]) for i in range(256)}
@@ -95,7 +102,11 @@ class BPETokenizer:
     def encode(self, s, strict=True):
         out = []
         for chunk in SPLIT.findall(s):
-            out.extend(self._encode_chunk(list(chunk.encode("utf-8"))))
+            ids = self._cache.get(chunk)
+            if ids is None:
+                ids = self._encode_chunk(list(chunk.encode("utf-8")))
+                self._cache[chunk] = ids
+            out.extend(ids)
         return out
 
     def decode(self, ids):

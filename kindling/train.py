@@ -4,7 +4,12 @@ Next-token prediction by gradient descent. Our own AdamW, our own warmup+cosine
 schedule, our own gradient clipping and loss. MLX gives us the arrays and the
 autodiff; everything that shapes the learning is here and is ours.
 
-Run:  python kindling/train.py [max_steps]
+Two scales:
+  python kindling/train.py seed [max_steps]      char level, ~10M, the sacred core
+  python kindling/train.py acolyte [max_steps]    bpe, ~100M, the wider witness
+
+The Acolyte is sized to fit a 16 GB Mac: context 512 and a modest batch, fp32 for a
+stable run that may go for days. Reduce the batch if memory is tight.
 """
 
 import math
@@ -18,32 +23,37 @@ import mlx.nn as nn
 from mlx.utils import tree_flatten, tree_unflatten
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from logos.config import seed as seed_config  # noqa: E402
+from logos import config as cfgs  # noqa: E402
 from logos.model import LOGOS, param_count  # noqa: E402
 from alphabet.char import CharTokenizer  # noqa: E402
+from alphabet.bpe import BPETokenizer  # noqa: E402
 from ember.format import save_ember  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRAIN_BIN = os.path.join(ROOT, "witness", "witness_train.bin")
-VAL_BIN = os.path.join(ROOT, "witness", "witness_val.bin")
-VOCAB = os.path.join(ROOT, "witness", "char_vocab.json")
+WIT = os.path.join(ROOT, "witness")
 SAMPLES = os.path.join(ROOT, "kindling", "samples")
-EMBER_OUT = os.path.join(ROOT, "ember", "logos_seed.ember")
 
-# the recipe
-B = 32
-T = 256
-MAX_STEPS = 6000
-WARMUP = 200
-LR_MAX = 6e-4
-LR_MIN = 6e-5
+SCALES = {
+    "seed": dict(
+        kind="char", vocab="char_vocab.json",
+        train_bin="witness_train.bin", val_bin="witness_val.bin",
+        make=cfgs.seed, B=32, T=256, lr_max=6e-4, lr_min=6e-5, warmup=200,
+        default_steps=10000, ember="logos_seed.ember", prompt="In the beginning",
+    ),
+    "acolyte": dict(
+        kind="bpe", vocab="bpe_vocab.json",
+        train_bin="witness_train_bpe.bin", val_bin="witness_val_bpe.bin",
+        make=cfgs.acolyte, B=12, T=512, lr_max=3e-4, lr_min=3e-5, warmup=300,
+        default_steps=60000, ember="logos_acolyte.ember", prompt="In the beginning",
+    ),
+}
+
 WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0
 BETAS = (0.9, 0.95)
 EVAL_EVERY = 250
-SAMPLE_EVERY = 250
+SAMPLE_EVERY = 500
 CKPT_EVERY = 1000
-PROMPT = "In the beginning"
 
 
 def cross_entropy(logits, y):
@@ -78,9 +88,7 @@ class AdamW:
                 v = mx.zeros_like(p)
             m = self.b1 * m + (1 - self.b1) * g
             v = self.b2 * v + (1 - self.b2) * (g * g)
-            mhat = m / bc1
-            vhat = v / bc2
-            p = p - lr * (mhat / (mx.sqrt(vhat) + self.eps) + self.wd * p)
+            p = p - lr * (m / bc1 / (mx.sqrt(v / bc2) + self.eps) + self.wd * p)
             self.m[name] = m
             self.v[name] = v
             new.append((name, p))
@@ -93,22 +101,24 @@ def clip_grads(grads, max_norm):
     mx.eval(total)
     tn = total.item()
     if tn > max_norm:
-        scale = max_norm / (tn + 1e-6)
-        grads = tree_unflatten([(n, g * scale) for n, g in tree_flatten(grads)])
+        s = max_norm / (tn + 1e-6)
+        grads = tree_unflatten([(n, g * s) for n, g in tree_flatten(grads)])
     return grads, tn
 
 
-def lr_at(step):
-    if step < WARMUP:
-        return LR_MAX * (step + 1) / WARMUP
-    prog = (step - WARMUP) / max(1, MAX_STEPS - WARMUP)
-    return LR_MIN + 0.5 * (LR_MAX - LR_MIN) * (1 + math.cos(math.pi * prog))
+def make_lr(sc, max_steps):
+    def lr_at(step):
+        if step < sc["warmup"]:
+            return sc["lr_max"] * (step + 1) / sc["warmup"]
+        prog = (step - sc["warmup"]) / max(1, max_steps - sc["warmup"])
+        return sc["lr_min"] + 0.5 * (sc["lr_max"] - sc["lr_min"]) * (1 + math.cos(math.pi * prog))
+    return lr_at
 
 
-def get_batch(data, cfg):
-    ix = np.random.randint(0, len(data) - cfg.context - 1, size=B)
-    x = np.stack([data[i:i + cfg.context] for i in ix]).astype(np.int64)
-    y = np.stack([data[i + 1:i + 1 + cfg.context] for i in ix]).astype(np.int64)
+def get_batch(data, B, T):
+    ix = np.random.randint(0, len(data) - T - 1, size=B)
+    x = np.stack([data[i:i + T] for i in ix]).astype(np.int64)
+    y = np.stack([data[i + 1:i + 1 + T] for i in ix]).astype(np.int64)
     return mx.array(x), mx.array(y)
 
 
@@ -125,58 +135,71 @@ def sample(model, tok, cfg, prompt, n=240, temp=0.8, key_seed=7):
     return tok.decode(ids)
 
 
+def load_tokenizer(sc):
+    path = os.path.join(WIT, sc["vocab"])
+    return CharTokenizer.load(path) if sc["kind"] == "char" else BPETokenizer.load(path)
+
+
 def main():
-    global MAX_STEPS
-    if len(sys.argv) > 1:
-        MAX_STEPS = int(sys.argv[1])
+    scale = "seed"
+    steps = None
+    args = sys.argv[1:]
+    if args and args[0] in SCALES:
+        scale = args[0]
+        args = args[1:]
+    if args:
+        steps = int(args[0])
+    sc = SCALES[scale]
+    max_steps = steps or sc["default_steps"]
     os.makedirs(SAMPLES, exist_ok=True)
 
-    tok = CharTokenizer.load(VOCAB)
-    cfg = seed_config(tok.vocab_size)
-    train_data = np.memmap(TRAIN_BIN, dtype=np.uint16, mode="r")
-    val_data = np.memmap(VAL_BIN, dtype=np.uint16, mode="r")
-    print("vocab %d  train %d tokens  val %d tokens" % (tok.vocab_size, len(train_data), len(val_data)))
+    tok = load_tokenizer(sc)
+    cfg = sc["make"](tok.vocab_size)
+    cfg.context = sc["T"]                       # train and serve at the same length
+    train_data = np.memmap(os.path.join(WIT, sc["train_bin"]), dtype=np.uint16, mode="r")
+    val_data = np.memmap(os.path.join(WIT, sc["val_bin"]), dtype=np.uint16, mode="r")
+    print("scale %s  vocab %d  ctx %d  train %d tok  val %d tok"
+          % (scale, tok.vocab_size, cfg.context, len(train_data), len(val_data)))
 
     model = LOGOS(cfg)
     mx.eval(model.parameters())
-    print("LOGOS Seed: %.2f M params" % (param_count(model) / 1e6))
+    print("LOGOS %s: %.2f M params" % (scale, param_count(model) / 1e6))
 
     opt = AdamW(BETAS, WEIGHT_DECAY)
     loss_and_grad = nn.value_and_grad(model, lambda m, x, y: cross_entropy(m(x), y))
+    lr_at = make_lr(sc, max_steps)
+    ember_out = os.path.join(ROOT, "ember", sc["ember"])
 
-    log_path = os.path.join(SAMPLES, "kindling_log.txt")
-    log = open(log_path, "a", encoding="utf-8")
+    log = open(os.path.join(SAMPLES, "kindling_%s.txt" % scale), "a", encoding="utf-8")
     t0 = time.time()
-    for step in range(MAX_STEPS):
+    for step in range(max_steps):
         lr = lr_at(step)
-        x, y = get_batch(train_data, cfg)
+        x, y = get_batch(train_data, sc["B"], sc["T"])
         loss, grads = loss_and_grad(model, x, y)
         grads, gnorm = clip_grads(grads, GRAD_CLIP)
         opt.step(model, grads, lr)
         mx.eval(model.parameters(), loss)
 
-        if step % EVAL_EVERY == 0 or step == MAX_STEPS - 1:
-            vx, vy = get_batch(val_data, cfg)
-            vloss = cross_entropy(model(vx), vy)
-            mx.eval(vloss)
-            dt = time.time() - t0
-            line = "step %5d  train %.4f  val %.4f  lr %.2e  gnorm %.2f  %.1fs" % (
-                step, loss.item(), vloss.item(), lr, gnorm, dt)
+        if step % EVAL_EVERY == 0 or step == max_steps - 1:
+            vx, vy = get_batch(val_data, sc["B"], sc["T"])
+            vl = cross_entropy(model(vx), vy)
+            mx.eval(vl)
+            line = "step %6d  train %.4f  val %.4f  lr %.2e  gnorm %.2f  %.1fs" % (
+                step, loss.item(), vl.item(), lr, gnorm, time.time() - t0)
             print(line)
             log.write(line + "\n"); log.flush()
 
-        if step % SAMPLE_EVERY == 0 or step == MAX_STEPS - 1:
-            s = sample(model, tok, cfg, PROMPT)
-            block = "\n----- step %d sample -----\n%s\n" % (step, s)
+        if step % SAMPLE_EVERY == 0 or step == max_steps - 1:
+            block = "\n----- step %d sample -----\n%s\n" % (step, sample(model, tok, cfg, sc["prompt"]))
             print(block)
             log.write(block); log.flush()
 
-        if step > 0 and (step % CKPT_EVERY == 0 or step == MAX_STEPS - 1):
-            save_ember(model, cfg, tok, EMBER_OUT)
+        if step > 0 and (step % CKPT_EVERY == 0 or step == max_steps - 1):
+            save_ember(model, cfg, tok, ember_out)
 
-    save_ember(model, cfg, tok, EMBER_OUT)
+    save_ember(model, cfg, tok, ember_out)
     log.close()
-    print("done. ember at %s" % EMBER_OUT)
+    print("done. ember at %s" % ember_out)
 
 
 if __name__ == "__main__":
