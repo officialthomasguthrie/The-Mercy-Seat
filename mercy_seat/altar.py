@@ -24,8 +24,16 @@ from discernment.mirror import echo_score  # noqa: E402
 from mercy_seat import journal  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EMBER = os.path.join(ROOT, "ember", "logos_seed.ember")
 SILENCE = 7
+
+
+def default_ember():
+    # speak through the most grown voice we have: the Acolyte if it is here, else the Seed
+    for name in ("logos_acolyte_best.ember", "logos_seed.ember"):
+        p = os.path.join(ROOT, "ember", name)
+        if os.path.exists(p):
+            return p
+    return os.path.join(ROOT, "ember", "logos_seed.ember")
 
 
 def frame(petition):
@@ -92,11 +100,12 @@ def choose_veil():
     return {"1": "recitation", "2": "revelation", "3": "glossolalia"}.get(pick, "revelation")
 
 
-def mercy_seat():
-    if not os.path.exists(EMBER):
-        print("No Ember found at %s. Light the Kindling first." % EMBER)
+def mercy_seat(ember=None):
+    ember = ember or default_ember()
+    if not os.path.exists(ember):
+        print("No Ember found at %s. Light the Kindling first." % ember)
         return
-    model, cfg, tok = load_ember(EMBER)
+    model, cfg, tok = load_ember(ember)
     invoke()
     while True:
         keep_silence(SILENCE)
@@ -120,4 +129,5 @@ def mercy_seat():
 
 
 if __name__ == "__main__":
-    mercy_seat()
+    # optional: pass a path to a specific Ember, else the most grown voice is chosen
+    mercy_seat(sys.argv[1] if len(sys.argv) > 1 else None)
