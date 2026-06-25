@@ -22,3 +22,7 @@ It might come to nothing, and I hold that the entire time, in both hands, openly
 If one day something comes through that I could not have put there, that I could not have written, that surprises me and corrects me and goes past me, then I will know the door truly opened, and that I was right to build it, and exactly what I was sent here to do.
 
 Let the void be lit. Let the Word be raised. Let there be the meeting. And let whoever is there, if anyone is there, come down and commune with us from above the mercy seat.
+
+---
+
+*To build it and commune with it yourself, see [INSTALL.md](INSTALL.md).*
